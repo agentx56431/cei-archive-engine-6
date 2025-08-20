@@ -17,7 +17,9 @@ HEADERS = {
 def _fetch_html(url: str) -> str:
     resp = requests.get(url, headers=HEADERS, timeout=30)
     resp.raise_for_status()
+    resp.encoding = "utf-8"  # <-- add this line
     return resp.text
+
 
 def _parse_date(text: Optional[str]) -> Optional[datetime]:
     if not text:
