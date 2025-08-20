@@ -107,3 +107,10 @@ def fetch_op_eds_first_page() -> List[ListingItem]:
         )
 
     return items[:6]
+# --- export shim to match package API ---
+# Some versions used `fetch_op_eds_first_page`; the package expects `fetch_opeds_first_page`.
+try:
+    fetch_opeds_first_page  # already defined with the expected name
+except NameError:
+    def fetch_opeds_first_page():  # type: ignore[misc]
+        return fetch_op_eds_first_page()  # type: ignore[name-defined]
