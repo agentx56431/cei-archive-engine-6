@@ -1,84 +1,53 @@
 ﻿from __future__ import annotations
-
-import re
-from typing import Iterable, List
-from datetime import datetime
-
+import time
+from typing import Optional
 import requests
 from bs4 import BeautifulSoup
+from requests.adapters import HTTPAdapter, Retry
 
-# Single place to tweak UA/timeout
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) CEI6/1.0 (+https://github.com/agentx56431/cei-archive-engine-6)"
-DEFAULT_TIMEOUT = 30
+# One session for all requests, with retries + desktop UA.
+_session: Optional[requests.Session] = None
 
-def _normalize_spaces(s: str) -> str:
-    return " ".join(s.split())
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Connection": "keep-alive",
+}
 
-def text(el) -> str:
-    """Get normalized text from a BeautifulSoup element."""
-    if not el:
-        return ""
-    return _normalize_spaces(el.get_text(" ", strip=True))
+def _get_session() -> requests.Session:
+    global _session
+    if _session is None:
+        s = requests.Session()
+        retries = Retry(
+            total=3,
+            backoff_factor=0.5,
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods=frozenset(["GET", "HEAD"]),
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(max_retries=retries)
+        s.mount("http://", adapter)
+        s.mount("https://", adapter)
+        s.headers.update(HEADERS)
+        _session = s
+    return _session
 
-# Aliases some indexers might have used
-def _text(el):  # alias
-    return text(el)
-
-def get_soup(url: str) -> BeautifulSoup:
-    resp = requests.get(url, headers={"User-Agent": UA}, timeout=DEFAULT_TIMEOUT)
+def fetch_html(url: str, timeout: int = 20) -> str:
+    s = _get_session()
+    resp = s.get(url, timeout=timeout)
+    if resp.status_code == 403:
+        # tiny courtesy backoff + 1 retry with same session
+        time.sleep(0.75)
+        resp = s.get(url, timeout=timeout)
     resp.raise_for_status()
-    return BeautifulSoup(resp.text, "html.parser")
+    # Some CEI pages can be mis-encoded; requests handles most.
+    return resp.text
 
-# More aliases so older code doesn't break
-def fetch_soup(url: str) -> BeautifulSoup:  # alias
-    return get_soup(url)
-
-def request_soup(url: str) -> BeautifulSoup:  # alias
-    return get_soup(url)
-
-def coerce_datetime_str(s: str) -> str:
-    """Try to parse a date string into ISO-8601. If parsing fails, return the original."""
-    if not s:
-        return ""
-    s = s.strip()
-    fmts = [
-        "%Y-%m-%dT%H:%M:%S%z",
-        "%Y-%m-%dT%H:%M:%S",
-        "%Y-%m-%d %H:%M:%S",
-        "%Y-%m-%d",
-    ]
-    for fmt in fmts:
-        try:
-            dt = datetime.strptime(s, fmt)
-            return dt.isoformat()
-        except Exception:
-            pass
-    return s
-
-# Alias used by some indexers
-def parse_date_or_raw(s: str) -> str:
-    return coerce_datetime_str(s)
-
-def clean_authors(raw: Iterable[str] | str) -> List[str]:
-    """Normalize authors list: strip 'By', split on commas/and, drop empties, dedupe."""
-    if raw is None:
-        return []
-    parts = [raw] if isinstance(raw, str) else list(raw)
-
-    names: List[str] = []
-    for p in parts:
-        if not p:
-            continue
-        p = re.sub(r"^\s*by\s+", "", p, flags=re.I)
-        tokens = re.split(r",|\band\b", p)
-        for t in tokens:
-            name = _normalize_spaces(t.strip())
-            if not name:
-                continue
-            if name not in names:
-                names.append(name)
-    return names
-
-# Another alias some code might reference
-def clean_authors_list(raw: Iterable[str] | str) -> List[str]:
-    return clean_authors(raw)
+def get_soup(url: str, timeout: int = 20) -> BeautifulSoup:
+    html = fetch_html(url, timeout=timeout)
+    return BeautifulSoup(html, "html.parser")
