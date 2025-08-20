@@ -9,7 +9,6 @@ from .indexers import (
     fetch_studies_first_page,
 )
 from .storage import write_index_jsonl
-from .details import fetch_blog_details_batch
 
 
 def _print_items(label: str, items: Iterable[ListingItem]) -> None:
@@ -102,6 +101,7 @@ def main() -> int:
         # details (blogs only for now)
         if args.details:
             blogs = listings_by_type.get("blogs", [])
+            from .details import fetch_blog_details_batch
             if not blogs:
                 print("[details] no blogs to fetch.")
                 return 0
