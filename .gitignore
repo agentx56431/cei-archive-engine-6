@@ -1,26 +1,30 @@
-﻿# Python
-__pycache__/
-*.py[cod]
-*.pyo
-*.log
-*.sqlite
-
-# Virtual envs
+﻿# Virtual envs
 .venv/
 env/
 venv/
 
-# Tools / caches
-.dist/
-.build/
-.pytest_cache/
-.coverage
-htmlcov/
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
 
-# Editors
+# IDE/editor
 .vscode/
 .idea/
 
-# OS
+# OS junk
 .DS_Store
 Thumbs.db
+
+# Project data & artifacts (we'll keep raw fixtures local by default)
+data/
+fixtures/
+outputs/
+logs/
+
+# Coverage / test caches
+.coverage
+htmlcov/
+.pytest_cache/
