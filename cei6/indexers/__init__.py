@@ -1,12 +1,14 @@
-# cei6/indexers/__init__.py
-from .blogs import fetch_first_page as fetch_blogs_first_page
-from .news_releases import fetch_first_page as fetch_news_releases_first_page
-from .op_eds import fetch_first_page as fetch_op_eds_first_page
-from .studies import fetch_first_page as fetch_studies_first_page
+﻿# Aggregator for indexer entry points.
+# These names match the actual files in this folder: *_indexer.py
+
+from .blogs_indexer import fetch_blogs_first_page
+from .news_indexer import fetch_news_releases_first_page
+from .opeds_indexer import fetch_opeds_first_page
+from .studies_indexer import fetch_studies_first_page
 
 __all__ = [
     "fetch_blogs_first_page",
     "fetch_news_releases_first_page",
-    "fetch_op_eds_first_page",
+    "fetch_opeds_first_page",
     "fetch_studies_first_page",
 ]

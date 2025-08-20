@@ -36,14 +36,6 @@ Index and archive CEI content (blogs, news releases, op-eds, studies) into four 
 
 ## CLI (initial)
 
-
-## Notes
-- Keep fetchers robust against pagination noise.
-- Use strict URL filters for real posts vs. utility links.
-- Log clearly; fail gracefully; prefer partial data over crashes.
-- Store this doc in the repo for alignment.
-
-
 ## Notes
 - Keep fetchers robust against pagination noise.
 - Use strict URL filters for real posts vs. utility links.

@@ -80,7 +80,7 @@ def _extract_date(card: BeautifulSoup) -> Optional[datetime]:
         return _parse_date(posted.get_text(" ", strip=True))
     return None
 
-def fetch_op_eds_first_page() -> List[ListingItem]:
+def fetch_opeds_first_page() -> List[ListingItem]:
     html = _fetch_html(LISTING_URL)
     soup = BeautifulSoup(html, "html.parser")
 
@@ -114,3 +114,6 @@ try:
 except NameError:
     def fetch_opeds_first_page():  # type: ignore[misc]
         return fetch_op_eds_first_page()  # type: ignore[name-defined]
+
+# Back-compat alias (so older imports still work)
+fetch_op_eds_first_page = fetch_opeds_first_page  # type: ignore[assignment]

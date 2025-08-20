@@ -4,10 +4,13 @@ from __future__ import annotations
 import argparse
 from typing import List, Iterable, Dict
 
-from .indexers.blogs_indexer import fetch_blogs_first_page
-from .indexers.news_indexer import fetch_news_releases_first_page
-from .indexers.opeds_indexer import fetch_op_eds_first_page
-from .indexers.studies_indexer import fetch_studies_first_page
+from .indexers import (
+    fetch_blogs_first_page,
+    fetch_news_releases_first_page,
+    fetch_opeds_first_page,
+    fetch_studies_first_page,
+)
+
 from .models import ListingItem, normalize_authors
 from .storage import write_index_jsonl
 
