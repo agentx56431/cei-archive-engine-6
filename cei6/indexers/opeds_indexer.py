@@ -116,4 +116,5 @@ except NameError:
         return fetch_op_eds_first_page()  # type: ignore[name-defined]
 
 # Back-compat alias (so older imports still work)
-fetch_op_eds_first_page = fetch_opeds_first_page  # type: ignore[assignment]
+
+fetch_op_eds_first_page = fetch_opeds_first_page  # back-compat alias

@@ -54,3 +54,39 @@ def write_index_jsonl(content_type: str, items: Iterable[ListingItem]) -> int:
             f.write(json.dumps(it.to_dict(), ensure_ascii=False) + "\n")
 
     return len(new)
+
+from typing import Iterable
+from .models import DetailRecord
+import json
+import os
+
+def _ensure_details_dir() -> str:
+    base = os.path.join("outputs", "details")
+    os.makedirs(base, exist_ok=True)
+    return base
+
+def write_details_jsonl(records: Iterable[DetailRecord], type_name: str) -> int:
+    """Append details to outputs/details/{type}.jsonl, de-dup by URL."""
+    base = _ensure_details_dir()
+    path = os.path.join(base, f"{type_name}.jsonl")
+    # Load existing URLs to avoid dupes
+    existing = set()
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    obj = json.loads(line)
+                    if isinstance(obj, dict) and "url" in obj:
+                        existing.add(obj["url"])
+                except Exception:
+                    pass
+
+    written = 0
+    with open(path, "a", encoding="utf-8", newline="\n") as f:
+        for rec in records:
+            if rec.url in existing:
+                continue
+            f.write(json.dumps(rec.to_json_obj(), ensure_ascii=False) + "\n")
+            existing.add(rec.url)
+            written += 1
+    return written
