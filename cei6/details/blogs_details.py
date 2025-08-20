@@ -1,196 +1,121 @@
-﻿from __future__ import annotations
+﻿# cei6/details/blogs_details.py
+from __future__ import annotations
 
-import re
+import time
+from dataclasses import dataclass
 from typing import List, Optional
-from urllib.parse import urljoin
 
+import requests
 from bs4 import BeautifulSoup
 
-from ..common import get_soup
-from ..models import ListingItem, DetailRecord
-from ..storage import write_details_jsonl
+
+@dataclass
+class BlogDetail:
+    content_type: str  # "blogs"
+    url: str
+    title: str
+    date_published: Optional[str]
+    issue: Optional[str]
+    authors: List[str]
+    content: str
+    paragraphs: List[str]
+    documents: List[str]
 
 
-PDF_RE = re.compile(r"\.pdf(\?.*)?$", re.I)
+def _make_session() -> requests.Session:
+    s = requests.Session()
+    s.headers.update(
+        {
+            # Use a real UA to avoid 403 blocks
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": "https://cei.org/blog/",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        }
+    )
+    return s
 
 
-def _clean(text: str) -> str:
-    """Trim and collapse whitespace."""
-    return re.sub(r"\s+", " ", (text or "")).strip()
+def _fetch_html(url: str, session: requests.Session) -> str:
+    # One retry on 403/5xx
+    for attempt in range(2):
+        resp = session.get(url, timeout=20)
+        if resp.status_code == 200:
+            return resp.text
+        if resp.status_code in (403, 429, 500, 502, 503):
+            time.sleep(1.0)  # tiny backoff
+            continue
+        resp.raise_for_status()
+    # last attempt failed
+    resp.raise_for_status()
+    return ""  # never reached
 
 
-def _find_content_container(soup: BeautifulSoup) -> Optional[BeautifulSoup]:
-    """
-    Try several CEI-like selectors for the main article content.
-    We keep this forgiving so minor site changes don't break us.
-    """
-    selectors = [
-        "article .entry-content",
-        "div.entry-content",
-        "div.c-article__content",
-        "div.article-content",
-        "div.post-content",
-        "article .post-content",
-        "article",  # fallback: grab paragraphs from the article tag
-    ]
-    for sel in selectors:
-        node = soup.select_one(sel)
-        if node:
-            return node
-    return None
+def parse_blog_detail(url: str) -> BlogDetail:
+    session = _make_session()
+    html = _fetch_html(url, session)
+    soup = BeautifulSoup(html, "html.parser")
 
+    # Title
+    title_el = soup.find(["h1", "h2"], class_="entry-title") or soup.find("h1")
+    title = (title_el.get_text(strip=True) if title_el else "").strip()
 
-def _extract_paragraphs(node: BeautifulSoup) -> List[str]:
-    """Collect readable <p> texts from a container node."""
-    paras = []
-    for p in node.select("p"):
-        txt = _clean(p.get_text(" "))
+    # Header area: author/date/issue often live here on CEI posts
+    header = soup.find(class_="entry-meta") or soup.find("header")
+    authors: List[str] = []
+    date_published: Optional[str] = None
+    issue: Optional[str] = None
+
+    if header:
+        # authors: find links with /experts/ or rel="author"
+        author_links = header.select('a[href*="/experts/"], a[rel="author"]')
+        for a in author_links:
+            name = a.get_text(strip=True)
+            if name:
+                authors.append(name)
+
+        # date: <time> or text like "August 12, 2025"
+        time_el = header.find("time")
+        if time_el and time_el.has_attr("datetime"):
+            date_published = time_el["datetime"]
+        elif time_el:
+            date_published = time_el.get_text(strip=True)
+
+        # issue: look for a visible label/badge near meta
+        issue_el = header.find(class_="badge") or header.find(class_="entry-category")
+        if issue_el:
+            issue = issue_el.get_text(" ", strip=True)
+
+    # Content & paragraphs
+    # Most CEI single posts wrap content in .entry-content or .post-content
+    content_root = soup.find(class_="entry-content") or soup.find(class_="post-content") or soup
+    paras: List[str] = []
+    for p in content_root.find_all("p"):
+        txt = p.get_text(" ", strip=True)
         if txt:
             paras.append(txt)
-    # If selector returned the whole <article> and no <p> found, avoid empty
-    if not paras:
-        # Sometimes content is in <div> <li> etc.; last-resort
-        for el in node.find_all(["p", "li"]):
-            txt = _clean(el.get_text(" "))
-            if txt:
-                paras.append(txt)
-    return paras
 
+    content = "\n\n".join(paras)
 
-def _extract_pdf_links(node: BeautifulSoup, base_url: str) -> List[str]:
-    """Return absolute URLs to any PDFs linked in the content."""
-    links: List[str] = []
-    for a in node.select("a[href]"):
-        href = a.get("href") or ""
-        if PDF_RE.search(href):
-            links.append(urljoin(base_url, href))
-    # de-dup while preserving order
-    seen = set()
-    uniq = []
-    for u in links:
-        if u not in seen:
-            uniq.append(u)
-            seen.add(u)
-    return uniq
+    # Any documents/PDF links?
+    documents: List[str] = []
+    for a in content_root.find_all("a", href=True):
+        href = a["href"]
+        if href.lower().endswith(".pdf"):
+            documents.append(href)
 
-
-def _extract_published(soup: BeautifulSoup) -> Optional[str]:
-    """
-    Prefer ISO-ish datetime if present. Fallback to text of a <time> or meta.
-    We keep this light because the index already captured the date reliably.
-    """
-    # <time datetime="...">
-    t = soup.select_one("time[datetime]")
-    if t and t.get("datetime"):
-        return _clean(t.get("datetime"))
-
-    # OpenGraph/SEO metas
-    for sel in [
-        'meta[property="article:published_time"]',
-        'meta[name="article:published_time"]',
-        'meta[name="pubdate"]',
-        'meta[name="date"]',
-    ]:
-        m = soup.select_one(sel)
-        if m and m.get("content"):
-            return _clean(m["content"])
-
-    # <time> text
-    t2 = soup.select_one("time")
-    if t2:
-        return _clean(t2.get_text(" "))
-
-    return None
-
-
-def _extract_title(soup: BeautifulSoup) -> Optional[str]:
-    """
-    Try to read the on-page title; if missing we keep the index title.
-    """
-    for sel in ["h1.entry-title", "h1.c-article__title", "article h1", "h1"]:
-        h = soup.select_one(sel)
-        if h:
-            txt = _clean(h.get_text(" "))
-            if txt:
-                return txt
-    # meta og:title as a fallback
-    og = soup.select_one('meta[property="og:title"]')
-    if og and og.get("content"):
-        return _clean(og["content"])
-    return None
-
-
-def _extract_authors(soup: BeautifulSoup) -> List[str]:
-    """
-    Light optional author extraction (we still trust index authors first).
-    """
-    names: List[str] = []
-    # Common patterns: links with rel=author, or byline containers
-    for a in soup.select('a[rel~="author"], .byline a, .c-article__byline a'):
-        name = _clean(a.get_text(" "))
-        if name:
-            names.append(name)
-    # De-dup
-    seen = set()
-    out: List[str] = []
-    for n in names:
-        if n and n not in seen:
-            out.append(n)
-            seen.add(n)
-    return out
-
-
-def parse_blog_detail(item: ListingItem) -> Optional[DetailRecord]:
-    """
-    Download and parse a single CEI blog post detail page.
-    Returns a DetailRecord or None if parsing fails.
-    """
-    soup = get_soup(item.url)
-
-    # Title/date: prefer page content, fall back to index values
-    title = _extract_title(soup) or item.title
-    date_published = _extract_published(soup) or item.date_published
-
-    container = _find_content_container(soup) or soup
-    paragraphs = _extract_paragraphs(container)
-    pdf_links = _extract_pdf_links(container, item.url)
-
-    # Authors: trust the index authors; if empty, use page authors
-    authors = item.authors or _extract_authors(soup)
-
-    return DetailRecord(
+    return BlogDetail(
         content_type="blogs",
-        url=item.url,
+        url=url,
         title=title,
         date_published=date_published,
-        issue=item.issue,
+        issue=issue,
         authors=authors,
-        outlet=None,         # not applicable to blogs
-        outlet_url=None,     # not applicable to blogs
-        pdf_links=pdf_links,
-        content_paragraphs=paragraphs,
+        content=content,
+        paragraphs=paras,
+        documents=documents,
     )
-
-
-def fetch_blog_details_batch(items: List[ListingItem], cap: Optional[int] = None) -> int:
-    """
-    Fetch details for the first `cap` items (or all if cap is None/0),
-    then write to outputs/details/blogs.jsonl. Returns the number written.
-    """
-    if cap and cap > 0:
-        items = items[:cap]
-
-    details: List[DetailRecord] = []
-    for it in items:
-        try:
-            rec = parse_blog_detail(it)
-            if rec:
-                details.append(rec)
-        except Exception as e:
-            print(f"[warn] fetch detail failed (blogs): {it.url} :: {e}")
-
-    if not details:
-        return 0
-
-    wrote = write_details_jsonl("blogs", details)
-    return wrote

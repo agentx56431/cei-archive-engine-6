@@ -2,26 +2,34 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from typing import Iterable, Set
+import os
+from dataclasses import asdict, is_dataclass
+from datetime import datetime
+from typing import Iterable, Union, Any
 
-from .models import ListingItem
+# Paths
+PKG_DIR = os.path.dirname(__file__)
+ROOT_DIR = os.path.dirname(PKG_DIR)
+OUT_INDEX_DIR = os.path.join(ROOT_DIR, "outputs", "index")
+OUT_DETAILS_DIR = os.path.join(ROOT_DIR, "outputs", "details")
 
-BASE_OUT = Path("outputs") / "index"
 
 def ensure_output_dirs() -> None:
-    BASE_OUT.mkdir(parents=True, exist_ok=True)
+    os.makedirs(OUT_INDEX_DIR, exist_ok=True)
+    os.makedirs(OUT_DETAILS_DIR, exist_ok=True)
 
-def jsonl_path_for(content_type: str) -> Path:
-    # one rolling JSONL per type, easy to merge later
-    return BASE_OUT / f"{content_type}.jsonl"
 
-def _load_existing_urls(p: Path) -> Set[str]:
-    urls: Set[str] = set()
-    if not p.exists():
-        return urls
-    # Safe/forgiving read of JSONL; skip bad lines.
-    with p.open("r", encoding="utf-8") as f:
+def _jsonl_path(kind: str, type_name: str) -> str:
+    ensure_output_dirs()
+    base = OUT_INDEX_DIR if kind == "index" else OUT_DETAILS_DIR
+    return os.path.join(base, f"{type_name}.jsonl")
+
+
+def _iter_existing_urls(path: str) -> set[str]:
+    seen: set[str] = set()
+    if not os.path.exists(path):
+        return seen
+    with open(path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -29,71 +37,117 @@ def _load_existing_urls(p: Path) -> Set[str]:
             try:
                 obj = json.loads(line)
                 url = obj.get("url")
-                if isinstance(url, str):
-                    urls.add(url)
+                if url:
+                    seen.add(url)
             except Exception:
                 # ignore malformed lines
                 continue
-    return urls
+    return seen
 
-def write_index_jsonl(content_type: str, items: Iterable[ListingItem]) -> int:
-    ensure_output_dirs()
-    path = jsonl_path_for(content_type)
 
-    # --- SAFETY GUARD ---
-    items = list(items)
-    if items and isinstance(items[0], str):
+def _to_record(obj: Any) -> dict:
+    # Accept dataclass, dict, or any object with the expected attributes
+    if is_dataclass(obj):
+        d = asdict(obj)
+    elif isinstance(obj, dict):
+        d = dict(obj)
+    else:
+        d = {}
+        for key in (
+            "content_type",
+            "title",
+            "url",
+            "date_published",
+            "issue",
+            "authors",
+            "outlet",
+            "outlet_url",
+            "documents",
+            "content",
+            "paragraphs",
+        ):
+            if hasattr(obj, key):
+                d[key] = getattr(obj, key)
+
+    # normalize date
+    dp = d.get("date_published")
+    if isinstance(dp, datetime):
+        d["date_published"] = dp.isoformat()
+
+    # normalize authors to list[str]
+    if "authors" in d:
+        if isinstance(d["authors"], str):
+            d["authors"] = [a.strip() for a in d["authors"].split(",") if a.strip()]
+        elif not isinstance(d["authors"], list) and d["authors"] is not None:
+            d["authors"] = [str(d["authors"])]
+
+    return d
+
+
+def write_index_jsonl(arg1: Any, arg2: Any) -> int:
+    """
+    Order-agnostic:
+    - write_index_jsonl(type_name: str, items: Iterable)
+    - write_index_jsonl(items: Iterable, type_name: str)
+    """
+    if isinstance(arg1, str) and not isinstance(arg2, str):
+        type_name, items = arg1, arg2
+    elif isinstance(arg2, str) and not isinstance(arg1, str):
+        type_name, items = arg2, arg1
+    else:
         raise TypeError(
-            "write_index_jsonl expected ListingItem objects but got strings. "
-            "Did you call it with arguments reversed? "
-            "Use write_index_jsonl(content_type, items)."
+            "write_index_jsonl expects (type_name:str, items) or (items, type_name:str)"
         )
-    # ---------------------
 
-    seen = _load_existing_urls(path)
-    new = [it for it in items if it.url not in seen]
+    path = _jsonl_path("index", type_name)
+    seen = _iter_existing_urls(path)
 
-    if not new:
+    new_items = []
+    for it in items or []:
+        url = None
+        try:
+            url = it["url"] if isinstance(it, dict) else getattr(it, "url", None)
+        except Exception:
+            url = None
+        if not url or url in seen:
+            continue
+        new_items.append(it)
+
+    if not new_items:
         return 0
 
-    with path.open("a", encoding="utf-8") as f:
-        for it in new:
-            f.write(json.dumps(it.to_dict(), ensure_ascii=False) + "\n")
-
-    return len(new)
-
-from typing import Iterable
-from .models import DetailRecord
-import json
-import os
-
-def _ensure_details_dir() -> str:
-    base = os.path.join("outputs", "details")
-    os.makedirs(base, exist_ok=True)
-    return base
-
-def write_details_jsonl(records: Iterable[DetailRecord], type_name: str) -> int:
-    """Append details to outputs/details/{type}.jsonl, de-dup by URL."""
-    base = _ensure_details_dir()
-    path = os.path.join(base, f"{type_name}.jsonl")
-    # Load existing URLs to avoid dupes
-    existing = set()
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            for line in f:
-                try:
-                    obj = json.loads(line)
-                    if isinstance(obj, dict) and "url" in obj:
-                        existing.add(obj["url"])
-                except Exception:
-                    pass
-
     written = 0
-    with open(path, "a", encoding="utf-8", newline="\n") as f:
-        for rec in records:
-            if rec.url in existing:
-                continue
-            f.write(json.dumps(rec.to_json_obj(), ensure_ascii=False) + "\n")
-            existing.add(rec.url)
+    with open(path, "a", encoding="utf-8", newline="") as f:
+        for it in new_items:
+            rec = _to_record(it)
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
             written += 1
     return written
+
+
+def write_detail_jsonl(arg1: Any, arg2: Any) -> int:
+    """
+    Order-agnostic:
+    - write_detail_jsonl(type_name: str, detail)
+    - write_detail_jsonl(detail, type_name: str)
+    """
+    if isinstance(arg1, str) and not isinstance(arg2, str):
+        type_name, detail = arg1, arg2
+    elif isinstance(arg2, str) and not isinstance(arg1, str):
+        type_name, detail = arg2, arg1
+    else:
+        raise TypeError(
+            "write_detail_jsonl expects (type_name:str, detail) or (detail, type_name:str)"
+        )
+
+    path = _jsonl_path("details", type_name)
+    seen = _iter_existing_urls(path)
+
+    rec = _to_record(detail)
+    url = rec.get("url")
+    if not url or url in seen:
+        return 0
+
+    with open(path, "a", encoding="utf-8", newline="") as f:
+        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    return 1
