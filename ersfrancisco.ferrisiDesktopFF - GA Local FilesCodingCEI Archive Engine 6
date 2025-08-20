@@ -1,0 +1,16 @@
+file:C:/Users/francisco.ferrisi/AppData/Local/Programs/Git/etc/gitconfig	diff.astextplain.textconv=astextplain
+file:C:/Users/francisco.ferrisi/AppData/Local/Programs/Git/etc/gitconfig	filter.lfs.clean=git-lfs clean -- %f
+file:C:/Users/francisco.ferrisi/AppData/Local/Programs/Git/etc/gitconfig	filter.lfs.smudge=git-lfs smudge -- %f
+file:C:/Users/francisco.ferrisi/AppData/Local/Programs/Git/etc/gitconfig	filter.lfs.process=git-lfs filter-process
+file:C:/Users/francisco.ferrisi/AppData/Local/Programs/Git/etc/gitconfig	filter.lfs.required=true
+file:C:/Users/francisco.ferrisi/AppData/Local/Programs/Git/etc/gitconfig	http.sslbackend=schannel
+file:C:/Users/francisco.ferrisi/AppData/Local/Programs/Git/etc/gitconfig	core.autocrlf=true
+file:C:/Users/francisco.ferrisi/AppData/Local/Programs/Git/etc/gitconfig	core.fscache=true
+file:C:/Users/francisco.ferrisi/AppData/Local/Programs/Git/etc/gitconfig	core.symlinks=false
+file:C:/Users/francisco.ferrisi/AppData/Local/Programs/Git/etc/gitconfig	pull.rebase=false
+file:C:/Users/francisco.ferrisi/AppData/Local/Programs/Git/etc/gitconfig	credential.helper=manager
+file:C:/Users/francisco.ferrisi/AppData/Local/Programs/Git/etc/gitconfig	credential.https://dev.azure.com.usehttppath=true
+file:C:/Users/francisco.ferrisi/AppData/Local/Programs/Git/etc/gitconfig	init.defaultbranch=master
+file:C:/Users/francisco.ferrisi/.gitconfig	user.name=agentx56431
+file:C:/Users/francisco.ferrisi/.gitconfig	user.email=ferrisi2002@gmail.com
+file:C:/Users/francisco.ferrisi/.gitconfig	alias.sync=git add . && git commit -m update && git push add . && git commit -m "update" && git push
