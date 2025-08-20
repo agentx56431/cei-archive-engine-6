@@ -37,12 +37,19 @@ def _load_existing_urls(p: Path) -> Set[str]:
     return urls
 
 def write_index_jsonl(content_type: str, items: Iterable[ListingItem]) -> int:
-    """
-    Append unseen listing items (dedup by URL) to outputs/index/{type}.jsonl.
-    Returns number of new lines written.
-    """
     ensure_output_dirs()
     path = jsonl_path_for(content_type)
+
+    # --- SAFETY GUARD ---
+    items = list(items)
+    if items and isinstance(items[0], str):
+        raise TypeError(
+            "write_index_jsonl expected ListingItem objects but got strings. "
+            "Did you call it with arguments reversed? "
+            "Use write_index_jsonl(content_type, items)."
+        )
+    # ---------------------
+
     seen = _load_existing_urls(path)
     new = [it for it in items if it.url not in seen]
 

@@ -103,9 +103,13 @@ def main(argv: List[str] | None = None) -> int:
             for i, it in enumerate(items, start=1):
                 print(_format_item(i, it))
 
-            if args.write_jsonl:
-                written = write_index_jsonl(items, t)
-                print(f"[wrote] {t}: {written} new line(s) to outputs/index/{t}.jsonl")
+            if args["write_jsonl"] if isinstance(args, dict) else args.write_jsonl:
+                try:
+                    wrote = write_index_jsonl(t, items)  # content_type FIRST, items SECOND
+                    total_new += wrote
+                    print(f"[wrote] {t}: {wrote} new line(s) to outputs/index/{t}.jsonl")
+                except Exception as e:
+                    print(f"[error] write_jsonl failed for {t}: {e}")
 
     # -------- Details (Stage R4: blogs only) --------
     if args.details:
